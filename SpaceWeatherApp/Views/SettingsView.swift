@@ -217,7 +217,7 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("SETTINGS")
-                        .font(Theme.mono(22, weight: .black))
+                        .font(Theme.mono(32, weight: .black))
                         .tracking(3)
                         .foregroundStyle(Theme.settingsTitleGradient)
                         .shadow(color: Color.white.opacity(0.2), radius: 6, x: 0, y: 0)

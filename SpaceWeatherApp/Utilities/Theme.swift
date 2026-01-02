@@ -38,9 +38,9 @@ struct Theme {
     
     static let activityTitleGradient = LinearGradient(
         colors: [
-            Color(red: 0.3, green: 0.8, blue: 1.0),   // cyan
-            Color(red: 0.5, green: 0.6, blue: 1.0),   // light blue
-            Color(red: 0.7, green: 0.4, blue: 1.0)    // purple
+            Color(red: 1.0, green: 0.6, blue: 0.3),   // warm orange
+            Color(red: 1.0, green: 0.4, blue: 0.4),   // coral red
+            Color(red: 0.9, green: 0.3, blue: 0.5)    // magenta-ish
         ],
         startPoint: .leading,
         endPoint: .trailing

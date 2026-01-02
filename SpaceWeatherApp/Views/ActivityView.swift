@@ -40,7 +40,7 @@ struct ActivityView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     Text("ACTIVITY")
-                        .font(Theme.mono(22, weight: .black))
+                        .font(Theme.mono(32, weight: .black))
                         .tracking(3)
                         .foregroundStyle(Theme.activityTitleGradient)
                         .shadow(color: Theme.accentSecondary.opacity(0.4), radius: 8, x: 0, y: 0)

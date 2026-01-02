@@ -87,8 +87,8 @@ struct SDOImageView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) {
-                    Text("THE SUN")
-                        .font(Theme.mono(22, weight: .black))
+                    Text("SOL.")
+                        .font(Theme.mono(32, weight: .black))
                         .tracking(3)
                         .foregroundStyle(Theme.solarTitleGradient)
                         .shadow(color: Theme.accentColor.opacity(0.5), radius: 8, x: 0, y: 0)
