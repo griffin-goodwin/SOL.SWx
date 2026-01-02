@@ -206,7 +206,7 @@ struct SettingsView: View {
                     }
                     .listRowBackground(Theme.cardBackground)
                     
-                    LinkRow(title: "Privacy Policy", icon: "hand.raised.fill", color: Theme.accentSecondary, url: "https://sunspotapp.example.com/privacy")
+                    LinkRow(title: "Privacy Policy", icon: "hand.raised.fill", color: Theme.accentSecondary, url: "https://github.com/griffin-goodwin/SunSPOT/blob/main/PRIVACY_POLICY.md")
                 } header: {
                     Text("ABOUT")
                         .font(Theme.mono(12, weight: .bold))
