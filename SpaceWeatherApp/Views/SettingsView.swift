@@ -527,17 +527,25 @@ struct NotificationSettingsView: View {
             
             // Background Info
             Section {
-                HStack {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .foregroundStyle(Theme.secondaryText)
-                    VStack(alignment: .leading) {
-                        Text("Background Refresh")
-                            .font(Theme.mono(14))
-                        Text("Checks for new alerts every 15 minutes when enabled")
-                            .font(Theme.mono(10))
-                            .foregroundStyle(Theme.secondaryText)
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                    HStack {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundStyle(Theme.accentSecondary)
+                        Text("How Notifications Work")
+                            .font(Theme.mono(14, weight: .semibold))
                     }
+                    
+                    Text("Sol. checks for new space weather events periodically when iOS refreshes the app in the background. This is not instant push notification—there may be delays of 15 minutes to several hours depending on your device usage patterns and battery state.")
+                        .font(Theme.mono(11))
+                        .foregroundStyle(Theme.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                    
+                    Text("For the most up-to-date alerts, open the app directly or check NOAA SWPC.")
+                        .font(Theme.mono(11))
+                        .foregroundStyle(Theme.tertiaryText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                .padding(.vertical, 4)
                 .listRowBackground(Theme.cardBackground)
                 
                 Button {
@@ -556,8 +564,12 @@ struct NotificationSettingsView: View {
                 }
                 .disabled(!notificationManager.isAuthorized)
                 .listRowBackground(Theme.cardBackground)
+            } header: {
+                Text("ABOUT NOTIFICATIONS")
+                    .font(Theme.mono(12, weight: .bold))
+                    .foregroundStyle(Theme.secondaryText)
             } footer: {
-                Text("Background refresh requires iOS system permission. Battery impact is minimal.")
+                Text("Background refresh is managed by iOS and may vary based on your usage patterns.")
                     .font(Theme.mono(10))
                     .foregroundStyle(Theme.tertiaryText)
             }
