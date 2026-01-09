@@ -6,6 +6,8 @@ import Charts
 struct XRayFluxChart: View {
     @Bindable var viewModel: SpaceWeatherViewModel
     let height: CGFloat
+    @State private var showSXR_A: Bool = true
+    @State private var showSXR_B: Bool = true
     
     // Reference date for chart end - actual "now"
     @State private var referenceDate: Date = Date()
@@ -46,9 +48,50 @@ struct XRayFluxChart: View {
         ("A", -8, .blue)
     ]
     
-    // Y-axis range - fixed to show all flare classes
+    // Y-axis range - computed from visible data (log10) with padding and sensible clamps
     private var yAxisRange: ClosedRange<Double> {
-        return -8.5 ... -3.5  // A to X+ range
+        // If both channels are shown, present the full canonical range for context
+        if showSXR_A && showSXR_B {
+            return -8.5 ... -3.5
+        }
+
+        var values: [Double] = []
+        if showSXR_A {
+            for p in viewModel.chartFluxDataA {
+                if let f = p.flux, f > 0 { values.append(log10(f)) }
+            }
+        }
+        if showSXR_B {
+            for p in viewModel.chartFluxData {
+                if let f = p.flux, f > 0 { values.append(log10(f)) }
+            }
+        }
+
+        // Fallback fixed range when no data
+        if values.isEmpty {
+            return -8.5 ... -3.5
+        }
+
+        var lower = values.min() ?? -8.5
+        var upper = values.max() ?? -3.5
+
+        // Ensure a minimum visual span
+        if abs(upper - lower) < 0.2 {
+            lower -= 0.25
+            upper += 0.25
+        }
+
+        // Larger padding when only one series is visible so axis feels roomier
+        let span = max(0.001, upper - lower)
+        let pad = max(0.5, span * 0.35)
+        lower -= pad
+        upper += pad
+
+        // Clamp to sensible physical bounds for SXR logs
+        lower = max(lower, -10.0)
+        upper = min(upper, -3.0)
+
+        return lower...upper
     }
 
     var body: some View {
@@ -121,35 +164,39 @@ struct XRayFluxChart: View {
                     }
                     
                     // SXR-A flux line (shorter wavelength, more energetic) - lighter
-                    ForEach(viewModel.chartFluxDataA) { point in
-                        if let date = point.date, let flux = point.flux, flux > 0 {
-                            LineMark(
-                                x: .value("Time", date),
-                                y: .value("Flux", log10(flux)),
-                                series: .value("Channel", "SXR-A")
-                            )
-                            .foregroundStyle(.cyan)
-                            .lineStyle(StrokeStyle(lineWidth: 1))
+                    if showSXR_A {
+                        ForEach(viewModel.chartFluxDataA) { point in
+                            if let date = point.date, let flux = point.flux, flux > 0 {
+                                LineMark(
+                                    x: .value("Time", date),
+                                    y: .value("Flux", log10(flux)),
+                                    series: .value("Channel", "SXR-A")
+                                )
+                                .foregroundStyle(.cyan)
+                                .lineStyle(StrokeStyle(lineWidth: 1))
+                            }
                         }
                     }
-                    
+
                     // SXR-B flux line (primary for classification) - prominent
-                    ForEach(viewModel.chartFluxData) { point in
-                        if let date = point.date, let flux = point.flux, flux > 0 {
-                            LineMark(
-                                x: .value("Time", date),
-                                y: .value("Flux", log10(flux)),
-                                series: .value("Channel", "SXR-B")
-                            )
-                            .foregroundStyle(.orange)
-                            .lineStyle(StrokeStyle(lineWidth: 1.5))
+                    if showSXR_B {
+                        ForEach(viewModel.chartFluxData) { point in
+                            if let date = point.date, let flux = point.flux, flux > 0 {
+                                LineMark(
+                                    x: .value("Time", date),
+                                    y: .value("Flux", log10(flux)),
+                                    series: .value("Channel", "SXR-B")
+                                )
+                                .foregroundStyle(.orange)
+                                .lineStyle(StrokeStyle(lineWidth: 1.5))
+                            }
                         }
                     }
                     
-                    // Current time indicator
-                    RuleMark(x: .value("Now", referenceDate))
-                        .foregroundStyle(Theme.accentColor.opacity(0.8))
-                        .lineStyle(StrokeStyle(lineWidth: 2))
+                    // // Current time indicator
+                    // RuleMark(x: .value("Now", referenceDate))
+                    //     .foregroundStyle(Theme.accentColor.opacity(0.8))
+                    //     .lineStyle(StrokeStyle(lineWidth: 2))
                 }
                 .chartForegroundStyleScale([
                     "SXR-A": Color.cyan,
@@ -181,7 +228,7 @@ struct XRayFluxChart: View {
                 .drawingGroup()
             }
             
-            // Legend and time labels
+                // Legend and time labels
             HStack {
                 Text(formatTimeLabel(chartStartDate))
                     .font(.system(size: 9))
@@ -189,24 +236,57 @@ struct XRayFluxChart: View {
                 
                 Spacer()
                 
-                // Legend
+                // Legend with larger, tappable toggles (consistent size and contrast)
                 HStack(spacing: 12) {
-                    HStack(spacing: 4) {
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(.cyan)
-                            .frame(width: 12, height: 2)
-                        Text("0.5-4Å")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.white.opacity(0.5))
+                    Button(action: { withAnimation { showSXR_A.toggle() } }) {
+                        HStack(spacing: 10) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.cyan)
+                                .frame(width: 28, height: 12)
+                                .opacity(showSXR_A ? 1.0 : 0.3)
+
+                            Text("0.5-4Å")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                        .frame(width: 120, height: 38)
+                        .background(showSXR_A ? Color.cyan.opacity(0.12) : Color.black.opacity(0.20))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(showSXR_A ? Color.cyan.opacity(0.9) : Color.clear, lineWidth: 1.5)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                        .accessibilityLabel("Toggle S X R A channel visibility")
                     }
-                    HStack(spacing: 4) {
-                        RoundedRectangle(cornerRadius: 1)
-                            .fill(.orange)
-                            .frame(width: 12, height: 2)
-                        Text("1-8Å")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.white.opacity(0.5))
+                    .buttonStyle(.plain)
+
+                    Button(action: { withAnimation { showSXR_B.toggle() } }) {
+                        HStack(spacing: 10) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color.orange)
+                                .frame(width: 28, height: 12)
+                                .opacity(showSXR_B ? 1.0 : 0.3)
+
+                            Text("1-8Å")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.8)
+                        }
+                        .frame(width: 120, height: 38)
+                        .background(showSXR_B ? Color.orange.opacity(0.12) : Color.black.opacity(0.20))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(showSXR_B ? Color.orange.opacity(0.9) : Color.clear, lineWidth: 1.5)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 10))
+                        .accessibilityLabel("Toggle S X R B channel visibility")
                     }
+                    .buttonStyle(.plain)
                 }
                 
                 Spacer()
@@ -225,6 +305,14 @@ struct XRayFluxChart: View {
         }
         .onChange(of: viewModel.overlayTimeRangeHours) { _, _ in
             // Update reference date when time range changes
+            referenceDate = Date()
+        }
+        .onChange(of: showSXR_A) { _, _ in
+            // Force chart refresh when toggling visibility
+            referenceDate = Date()
+        }
+        .onChange(of: showSXR_B) { _, _ in
+            // Force chart refresh when toggling visibility
             referenceDate = Date()
         }
     }
