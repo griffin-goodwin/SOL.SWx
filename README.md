@@ -1,5 +1,7 @@
 # SOL.SWx
 
+![SOL.SWx](SpaceWeatherApp/Assets.xcassets/AppIcon.appiconset/sol.swx.png)
+
 ☀️ Real-time space weather monitoring for iOS
 
 ## About
