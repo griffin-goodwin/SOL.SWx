@@ -12,6 +12,8 @@ struct AuroraView: View {
     @State private var lastUpdated: Date?
     @State private var showInfo = false
     @State private var showKpDetails = false
+    @State private var showCompass = true
+    @State private var topPoints: [AuroraPoint] = []
     @State private var maxPointsPerHemisphere: Int = 20000
     
     private let auroraService = AuroraService()
@@ -39,6 +41,10 @@ struct AuroraView: View {
                         // Legend
                         legendCard
                         
+                        // Best Places
+                        bestPlacesCard
+                            .id("best-places-card")
+                        
                         // Last updated
                         if let lastUpdated {
                             Text("Updated \(lastUpdated.formatted(date: .omitted, time: .shortened))")
@@ -51,12 +57,40 @@ struct AuroraView: View {
                 }
 
                 // Lightweight compass overlay (bottom-right)
-                VStack {
-                    Spacer()
-                    HStack {
+                if showCompass {
+                    VStack {
                         Spacer()
-                        AuroraCompassOverlay(auroraPoints: filteredPoints, selectedHemisphere: selectedHemisphere)
+                        HStack {
+                            Spacer()
+                            AuroraCompassOverlay(auroraPoints: filteredPoints, selectedHemisphere: selectedHemisphere) {
+                                withAnimation {
+                                    showCompass = false
+                                }
+                            }
                             .padding()
+                        }
+                    }
+                }
+
+                if !showCompass {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button {
+                                withAnimation {
+                                    showCompass = true
+                                }
+                            } label: {
+                                Image(systemName: "safari.fill")
+                                    .font(.title2)
+                                    .padding(12)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                                    .foregroundStyle(Theme.auroraGreen)
+                            }
+                            .padding()
+                        }
                     }
                 }
 
@@ -315,6 +349,9 @@ struct AuroraView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(selectedHemisphere == hemisphere ? Theme.auroraGreen : Theme.secondaryText)
+                .onChange(of: selectedHemisphere) { _ in
+                    updateTopPoints()
+                }
             }
         }
         .padding(.horizontal)
@@ -393,7 +430,70 @@ struct AuroraView: View {
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg))
         .padding(.horizontal)
     }
-    
+
+    private var bestPlacesCard: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(Theme.auroraGreen)
+                Text("BEST VIEWING LOCATIONS")
+                    .font(Theme.mono(12, weight: .semibold))
+                    .foregroundStyle(Theme.secondaryText)
+            }
+
+            let bestPoints = topPoints
+
+            if bestPoints.isEmpty {
+                Text("No high-probability aurora data available.")
+                    .font(Theme.mono(12))
+                    .foregroundStyle(Theme.tertiaryText)
+            } else {
+                VStack(spacing: Theme.Spacing.sm) {
+                    ForEach(bestPoints) { point in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                if let name = point.locationName {
+                                    Text(name.uppercased())
+                                        .font(Theme.mono(13, weight: .bold))
+                                        .foregroundStyle(Theme.primaryText)
+                                    Text("\(abs(point.latitude), specifier: "%.1f")°\(point.latitude >= 0 ? "N" : "S"), \(abs(point.longitude), specifier: "%.1f")°\(point.longitude >= 0 ? "E" : "W")")
+                                        .font(Theme.mono(10))
+                                        .foregroundStyle(Theme.secondaryText)
+                                } else {
+                                    Text("\(abs(point.latitude), specifier: "%.1f")°\(point.latitude >= 0 ? "N" : "S"), \(abs(point.longitude), specifier: "%.1f")°\(point.longitude >= 0 ? "E" : "W")")
+                                        .font(Theme.mono(13, weight: .medium))
+                                        .foregroundStyle(Theme.primaryText)
+                                }
+                            }
+
+                            Spacer()
+
+                            HStack(spacing: Theme.Spacing.xs) {
+                                Text("\(Int(point.probability))%")
+                                    .font(Theme.mono(13, weight: .bold))
+                                    .foregroundStyle(auroraColor(for: point.probability))
+                                
+                                Circle()
+                                    .fill(auroraColor(for: point.probability))
+                                    .frame(width: 8, height: 8)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        if point.id != bestPoints.last?.id {
+                            Divider()
+                                .background(Color.white.opacity(0.1))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(Theme.Spacing.lg)
+        .background(Theme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg))
+        .padding(.horizontal)
+    }
+
+
     private func legendItem(color: Color, label: String, opacity: Double) -> some View {
         VStack(spacing: Theme.Spacing.xs) {
             Circle()
@@ -447,6 +547,65 @@ struct AuroraView: View {
         print("🔎 Filtered points for \(selectedHemisphere.rawValue): \(result.count) of total \(auroraPoints.count)")
         return result
     }
+
+    private func updateTopPoints() {
+        let count = 5
+        let filtered = filteredPoints.filter { $0.probability >= 10 }
+        
+        // More aggressive spatial filtering to ensure diversity
+        // 10x10 degree grid ensures we don't pick points that are too close
+        var seenRegions = Set<String>()
+        var distinctPoints: [AuroraPoint] = []
+        
+        // Sort by probability descending to pick the best point in each region
+        let sortedAll = filtered.sorted(by: { $0.probability > $1.probability })
+        
+        for p in sortedAll {
+            // Use 10-degree grid for much better diversity
+            let latRegion = Int(floor(p.latitude / 10.0))
+            let lonRegion = Int(floor(p.longitude / 10.0))
+            let key = "\(latRegion),\(lonRegion)"
+            
+            if !seenRegions.contains(key) {
+                seenRegions.insert(key)
+                distinctPoints.append(p)
+            }
+            if distinctPoints.count >= count { break }
+        }
+        
+        // If we didn't get enough points with 10-degree spacing, try again with 5-degree
+        if distinctPoints.count < count {
+            seenRegions.removeAll()
+            distinctPoints.removeAll()
+            for p in sortedAll {
+                let latRegion = Int(floor(p.latitude / 5.0))
+                let lonRegion = Int(floor(p.longitude / 5.0))
+                let key = "\(latRegion),\(lonRegion)"
+                if !seenRegions.contains(key) {
+                    seenRegions.insert(key)
+                    distinctPoints.append(p)
+                }
+                if distinctPoints.count >= count { break }
+            }
+        }
+        
+        let sorted = distinctPoints
+        
+        // Initial set without names
+        self.topPoints = sorted
+        
+        // Trigger async geocoding
+        Task {
+            let geocoded = await auroraService.geocodePoints(sorted)
+            await MainActor.run {
+                // Only update if these points are still the same locations we wanted to geocode
+                // Check the first point's ID (stable coordinate-based ID)
+                if !geocoded.isEmpty && self.topPoints.first?.id == sorted.first?.id {
+                    self.topPoints = geocoded
+                }
+            }
+        }
+    }
     
     // MARK: - Data Loading
     
@@ -467,6 +626,7 @@ struct AuroraView: View {
                 self.kpForecast = forecast
                 self.lastUpdated = Date()
                 self.isLoading = false
+                self.updateTopPoints()
 
                 let northCount = points.filter { $0.latitude > 0 }.count
                 let southCount = points.filter { $0.latitude < 0 }.count

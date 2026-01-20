@@ -6,6 +6,9 @@ actor AuroraService {
     private let session: URLSession
     private let decoder: JSONDecoder
     
+    // Geocoding cache to avoid redundant API calls and rate limiting
+    private var geocodeCache: [String: String] = [:]
+    
     // API Endpoints
     private let auroraForecastURL = "https://services.swpc.noaa.gov/json/ovation_aurora_latest.json"
     private let kpIndexURL = "https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json"
@@ -231,6 +234,57 @@ func fetchAuroraPoints(hemisphere: Hemisphere) async throws -> [AuroraPoint] {
         case 70...: return .extreme
         default: return .none
         }
+    }
+
+    // MARK: - Geocoding
+
+    /// Reverse geocode a set of points. Updates the locationName property.
+    /// Uses CLGeocoder.
+    func geocodePoints(_ points: [AuroraPoint]) async -> [AuroraPoint] {
+        let geocoder = CLGeocoder()
+        var updatedPoints: [AuroraPoint] = []
+
+        for point in points {
+            var p = point
+            
+            // Check cache first
+            if let cachedName = geocodeCache[p.id] {
+                p.locationName = cachedName
+                updatedPoints.append(p)
+                continue
+            }
+            
+            let location = CLLocation(latitude: p.latitude, longitude: p.longitude)
+            do {
+                let placemarks = try await geocoder.reverseGeocodeLocation(location)
+                if let placemark = placemarks.first {
+                    // Build a friendly name: City, Country or Region, Country
+                    let city = placemark.locality ?? placemark.administrativeArea
+                    let country = placemark.country
+                    
+                    let name: String
+                    if let city, let country {
+                        name = "\(city), \(country)"
+                    } else if let country {
+                        name = country
+                    } else {
+                        name = placemark.name ?? "Unknown Location"
+                    }
+                    
+                    p.locationName = name
+                    geocodeCache[p.id] = name
+                }
+            } catch {
+                print("⚠️ Geocoding failed for \(p.latitude), \(p.longitude): \(error.localizedDescription)")
+            }
+            updatedPoints.append(p)
+            
+            // Be nice to Apple's geocoding service and avoid rate limiting
+            // Only sleep if we actually made a network request
+            try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s
+        }
+
+        return updatedPoints
     }
 }
 

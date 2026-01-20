@@ -18,10 +18,13 @@ struct AuroraForecast: Codable {
 
 /// Individual aurora data point with probability
 struct AuroraPoint: Identifiable, Equatable {
-    let id = UUID()
+    var id: String {
+        "\(String(format: "%.2f", latitude)),\(String(format: "%.2f", longitude))"
+    }
     let longitude: Double
     let latitude: Double
     let probability: Double // 0-100
+    var locationName: String? // Geocoded name
     
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -45,11 +48,12 @@ struct AuroraPoint: Identifiable, Equatable {
         return min(max(b, 0), 9)
     }
     
-    // Equatable conformance - compare by data values, not UUID
+    // Equatable conformance
     static func == (lhs: AuroraPoint, rhs: AuroraPoint) -> Bool {
         lhs.longitude == rhs.longitude &&
         lhs.latitude == rhs.latitude &&
-        lhs.probability == rhs.probability
+        lhs.probability == rhs.probability &&
+        lhs.locationName == rhs.locationName
     }
 }
 
