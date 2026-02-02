@@ -1,4 +1,6 @@
 import SwiftUI
+import AVFoundation
+import Photos
 
 /// Solar image viewer with multi-observatory support
 struct SDOImageView: View {
@@ -743,6 +745,10 @@ private struct AnimationDrawer: View {
     @State private var playbackSpeed: Double = 0.15
     @State private var playbackTask: Task<Void, Never>?
     @State private var loadTask: Task<Void, Never>?
+    
+    @State private var isFullScreen = false
+    @State private var isSaving = false
+    @State private var saveSuccess: Bool? = nil
 
     private let frameCounts = [12, 24, 48, 72]
 
@@ -856,29 +862,89 @@ private struct AnimationDrawer: View {
                         .overlay(Capsule().stroke(Color.white.opacity(0.2), lineWidth: 0.5))
                         .padding(.bottom, 12)
                     }
+                    .overlay(alignment: .topTrailing) {
+                        // Action buttons when frames are loaded
+                        HStack(spacing: 8) {
+                            // Full screen button
+                            Button {
+                                isFullScreen = true
+                            } label: {
+                                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 36, height: 36)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(Circle())
+                            }
+                            
+                            // Save button (only enabled when all frames are loaded)
+                            Button {
+                                Task { await saveAnimationToPhotos() }
+                            } label: {
+                                Group {
+                                    if isSaving {
+                                        ProgressView()
+                                            .scaleEffect(0.7)
+                                            .tint(.white)
+                                    } else if saveSuccess == true {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(.green)
+                                    } else {
+                                        Image(systemName: "square.and.arrow.down")
+                                            .foregroundStyle(isLoading ? .white.opacity(0.3) : .white)
+                                    }
+                                }
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 36, height: 36)
+                                .background(.ultraThinMaterial)
+                                .clipShape(Circle())
+                            }
+                            .disabled(isSaving || isLoading)
+                        }
+                        .padding(12)
+                    }
             }
 
             if isLoading {
                 VStack {
-                    VStack(spacing: 8) {
-                        ProgressView(value: loadingProgress)
-                            .frame(width: 160)
-                            .tint(measurement.color)
-                        Text("Loading frame \(loadedFrameCount) of \(totalExpectedFrames)")
-                            .font(Theme.mono(11, weight: .bold))
-                            .foregroundStyle(measurement.color)
+                    HStack {
+                        HStack(spacing: 8) {
+                            ProgressView(value: loadingProgress)
+                                .frame(width: 60)
+                                .tint(measurement.color)
+                            Text("\(loadedFrameCount)/\(totalExpectedFrames)")
+                                .font(Theme.mono(10, weight: .bold))
+                                .foregroundStyle(measurement.color)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial)
+                        .clipShape(Capsule())
+                        .padding(12)
+                        Spacer()
                     }
-                    .padding(12)
-                    .background(.ultraThinMaterial)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .padding(.top, 20)
-
                     Spacer()
                 }
             }
         }
-        .frame(height: min(UIScreen.main.bounds.height * 0.28, 280))
+        .frame(height: showLargePreview ? min(UIScreen.main.bounds.height * 0.38, 360) : min(UIScreen.main.bounds.height * 0.28, 280))
         .shadow(color: Color.black.opacity(0.2), radius: 10, y: 5)
+        .fullScreenCover(isPresented: $isFullScreen) {
+            FullScreenAnimationView(
+                frames: frames,
+                currentFrame: $currentFrame,
+                isPlaying: $isPlaying,
+                playbackSpeed: $playbackSpeed,
+                measurement: measurement,
+                onDismiss: { isFullScreen = false }
+            )
+        }
+        .animation(.easeInOut(duration: 0.3), value: showLargePreview)
+    }
+    
+    /// Show large preview when loading or when frames are loaded
+    private var showLargePreview: Bool {
+        isLoading || !frames.isEmpty
     }
 
     private var config: some View {
@@ -1229,5 +1295,466 @@ private struct AnimationDrawer: View {
         isPlaying = false
         playbackTask?.cancel()
         playbackTask = nil
+    }
+    
+    private func saveAnimationToPhotos() async {
+        guard frames.count >= 2 else { return }
+        
+        await MainActor.run {
+            isSaving = true
+            saveSuccess = nil
+        }
+        
+        do {
+            let videoURL = try await createVideo(from: frames, fps: Int(1.0 / playbackSpeed))
+            
+            // Save to Photos
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                    guard status == .authorized || status == .limited else {
+                        continuation.resume(throwing: NSError(domain: "Photos", code: -1, userInfo: [NSLocalizedDescriptionKey: "Photo library access denied"]))
+                        return
+                    }
+                    
+                    PHPhotoLibrary.shared().performChanges {
+                        PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+                    } completionHandler: { success, error in
+                        // Clean up temp file
+                        try? FileManager.default.removeItem(at: videoURL)
+                        
+                        if success {
+                            continuation.resume()
+                        } else {
+                            continuation.resume(throwing: error ?? NSError(domain: "Photos", code: -1))
+                        }
+                    }
+                }
+            }
+            
+            await MainActor.run {
+                isSaving = false
+                saveSuccess = true
+                // Reset success indicator after delay
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    await MainActor.run { saveSuccess = nil }
+                }
+            }
+        } catch {
+            await MainActor.run {
+                isSaving = false
+                saveSuccess = false
+            }
+        }
+    }
+    
+    private func createVideo(from frames: [LoadedFrame], fps: Int) async throws -> URL {
+        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("solar_animation_\(UUID().uuidString).mp4")
+        
+        guard let firstImage = frames.first?.image else {
+            throw NSError(domain: "Video", code: -1, userInfo: [NSLocalizedDescriptionKey: "No frames"])
+        }
+        
+        let size = firstImage.size
+        
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: Int(size.width),
+            AVVideoHeightKey: Int(size.height)
+        ]
+        
+        let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        writerInput.expectsMediaDataInRealTime = false
+        
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: writerInput,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
+                kCVPixelBufferWidthKey as String: Int(size.width),
+                kCVPixelBufferHeightKey as String: Int(size.height)
+            ]
+        )
+        
+        writer.add(writerInput)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        
+        let frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
+        
+        for (index, frame) in frames.enumerated() {
+            while !writerInput.isReadyForMoreMediaData {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            
+            if let pixelBuffer = pixelBuffer(from: frame.image, size: size) {
+                let presentationTime = CMTimeMultiply(frameDuration, multiplier: Int32(index))
+                adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
+            }
+        }
+        
+        writerInput.markAsFinished()
+        await writer.finishWriting()
+        
+        if writer.status == .failed {
+            throw writer.error ?? NSError(domain: "Video", code: -1)
+        }
+        
+        return outputURL
+    }
+    
+    private func pixelBuffer(from image: UIImage, size: CGSize) -> CVPixelBuffer? {
+        let attrs: [String: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+        ]
+        
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            Int(size.width),
+            Int(size.height),
+            kCVPixelFormatType_32ARGB,
+            attrs as CFDictionary,
+            &pixelBuffer
+        )
+        
+        guard status == kCVReturnSuccess, let buffer = pixelBuffer else { return nil }
+        
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        
+        let context = CGContext(
+            data: CVPixelBufferGetBaseAddress(buffer),
+            width: Int(size.width),
+            height: Int(size.height),
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+        )
+        
+        guard let ctx = context, let cgImage = image.cgImage else { return nil }
+        
+        ctx.draw(cgImage, in: CGRect(origin: .zero, size: size))
+        
+        return buffer
+    }
+}
+
+// MARK: - Full Screen Animation View
+
+private struct FullScreenAnimationView: View {
+    let frames: [LoadedFrame]
+    @Binding var currentFrame: Int
+    @Binding var isPlaying: Bool
+    @Binding var playbackSpeed: Double
+    let measurement: SolarMeasurement
+    let onDismiss: () -> Void
+    
+    @State private var playbackTask: Task<Void, Never>?
+    @State private var showControls = true
+    @State private var isSaving = false
+    @State private var saveSuccess: Bool? = nil
+    
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            if frames.indices.contains(currentFrame) {
+                Image(uiImage: frames[currentFrame].image)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(.bottom, showControls ? 180 : 0)
+                    .padding(.top, showControls ? 80 : 0)
+                    .animation(.easeInOut(duration: 0.2), value: showControls)
+                    .onTapGesture {
+                        withAnimation { showControls.toggle() }
+                    }
+            }
+            
+            // Controls overlay
+            if showControls {
+                VStack {
+                    // Top bar
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(measurement.displayName)
+                                .font(Theme.mono(16, weight: .bold))
+                                .foregroundStyle(.white)
+                            if frames.indices.contains(currentFrame) {
+                                Text(frames[currentFrame].date.formattedDateTime)
+                                    .font(Theme.mono(12))
+                                    .foregroundStyle(.white.opacity(0.7))
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(.ultraThinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        
+                        Spacer()
+                        
+                        // Save button
+                        Button {
+                            Task { await saveAnimationToPhotos() }
+                        } label: {
+                            Group {
+                                if isSaving {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                        .tint(.white)
+                                } else if saveSuccess == true {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.green)
+                                } else {
+                                    Image(systemName: "square.and.arrow.down")
+                                        .foregroundStyle(.white.opacity(0.8))
+                                }
+                            }
+                            .font(.system(size: 18, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Circle())
+                        }
+                        .disabled(isSaving)
+                        
+                        Button {
+                            stopPlayback()
+                            onDismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title)
+                                .foregroundStyle(.white.opacity(0.8))
+                        }
+                    }
+                    .padding()
+                    
+                    Spacer()
+                    
+                    // Bottom controls
+                    VStack(spacing: 16) {
+                        // Progress slider
+                        if frames.count > 1 {
+                            Slider(
+                                value: Binding(
+                                    get: { Double(currentFrame) },
+                                    set: { currentFrame = Int($0) }
+                                ),
+                                in: 0...Double(frames.count - 1),
+                                step: 1
+                            )
+                            .tint(measurement.color)
+                            .padding(.horizontal)
+                        }
+                        
+                        HStack(spacing: 32) {
+                            // Frame counter
+                            Text("\(currentFrame + 1)/\(frames.count)")
+                                .font(Theme.mono(14))
+                                .foregroundStyle(.white.opacity(0.7))
+                            
+                            // Play/Pause
+                            Button {
+                                if isPlaying { stopPlayback() } else { startPlayback() }
+                            } label: {
+                                Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
+                                    .font(.system(size: 64))
+                                    .foregroundStyle(measurement.color)
+                            }
+                            
+                            // FPS
+                            Text("\(Int(1/playbackSpeed)) FPS")
+                                .font(Theme.mono(14))
+                                .foregroundStyle(measurement.color)
+                        }
+                        
+                        // Speed slider
+                        HStack {
+                            Image(systemName: "hare.fill")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
+                            Slider(value: $playbackSpeed, in: 0.05...0.5)
+                                .tint(.white.opacity(0.5))
+                            Image(systemName: "tortoise.fill")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                        .padding(.horizontal, 32)
+                    }
+                    .padding(.vertical, 24)
+                    .background(.ultraThinMaterial)
+                }
+            }
+        }
+        .statusBarHidden()
+        .onAppear {
+            if isPlaying { startPlayback() }
+        }
+        .onDisappear {
+            playbackTask?.cancel()
+        }
+    }
+    
+    private func startPlayback() {
+        guard !frames.isEmpty else { return }
+        isPlaying = true
+        playbackTask?.cancel()
+        playbackTask = Task { @MainActor in
+            while isPlaying && !frames.isEmpty {
+                try? await Task.sleep(for: .seconds(playbackSpeed))
+                guard isPlaying, !frames.isEmpty else { break }
+                currentFrame = (currentFrame + 1) % frames.count
+            }
+        }
+    }
+    
+    private func stopPlayback() {
+        isPlaying = false
+        playbackTask?.cancel()
+        playbackTask = nil
+    }
+    
+    private func saveAnimationToPhotos() async {
+        guard frames.count >= 2 else { return }
+        
+        await MainActor.run {
+            isSaving = true
+            saveSuccess = nil
+        }
+        
+        do {
+            let videoURL = try await createVideo(from: frames, fps: Int(1.0 / playbackSpeed))
+            
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                    guard status == .authorized || status == .limited else {
+                        continuation.resume(throwing: NSError(domain: "Photos", code: -1, userInfo: [NSLocalizedDescriptionKey: "Photo library access denied"]))
+                        return
+                    }
+                    
+                    PHPhotoLibrary.shared().performChanges {
+                        PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+                    } completionHandler: { success, error in
+                        try? FileManager.default.removeItem(at: videoURL)
+                        
+                        if success {
+                            continuation.resume()
+                        } else {
+                            continuation.resume(throwing: error ?? NSError(domain: "Photos", code: -1))
+                        }
+                    }
+                }
+            }
+            
+            await MainActor.run {
+                isSaving = false
+                saveSuccess = true
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    await MainActor.run { saveSuccess = nil }
+                }
+            }
+        } catch {
+            await MainActor.run {
+                isSaving = false
+                saveSuccess = false
+            }
+        }
+    }
+    
+    private func createVideo(from frames: [LoadedFrame], fps: Int) async throws -> URL {
+        let outputURL = FileManager.default.temporaryDirectory.appendingPathComponent("solar_animation_\(UUID().uuidString).mp4")
+        
+        guard let firstImage = frames.first?.image else {
+            throw NSError(domain: "Video", code: -1, userInfo: [NSLocalizedDescriptionKey: "No frames"])
+        }
+        
+        let size = firstImage.size
+        
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: Int(size.width),
+            AVVideoHeightKey: Int(size.height)
+        ]
+        
+        let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        writerInput.expectsMediaDataInRealTime = false
+        
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: writerInput,
+            sourcePixelBufferAttributes: [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32ARGB,
+                kCVPixelBufferWidthKey as String: Int(size.width),
+                kCVPixelBufferHeightKey as String: Int(size.height)
+            ]
+        )
+        
+        writer.add(writerInput)
+        writer.startWriting()
+        writer.startSession(atSourceTime: .zero)
+        
+        let frameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
+        
+        for (index, frame) in frames.enumerated() {
+            while !writerInput.isReadyForMoreMediaData {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            
+            if let pixelBuffer = pixelBuffer(from: frame.image, size: size) {
+                let presentationTime = CMTimeMultiply(frameDuration, multiplier: Int32(index))
+                adaptor.append(pixelBuffer, withPresentationTime: presentationTime)
+            }
+        }
+        
+        writerInput.markAsFinished()
+        await writer.finishWriting()
+        
+        if writer.status == .failed {
+            throw writer.error ?? NSError(domain: "Video", code: -1)
+        }
+        
+        return outputURL
+    }
+    
+    private func pixelBuffer(from image: UIImage, size: CGSize) -> CVPixelBuffer? {
+        let attrs: [String: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+        ]
+        
+        var pixelBuffer: CVPixelBuffer?
+        let status = CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            Int(size.width),
+            Int(size.height),
+            kCVPixelFormatType_32ARGB,
+            attrs as CFDictionary,
+            &pixelBuffer
+        )
+        
+        guard status == kCVReturnSuccess, let buffer = pixelBuffer else { return nil }
+        
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        
+        let context = CGContext(
+            data: CVPixelBufferGetBaseAddress(buffer),
+            width: Int(size.width),
+            height: Int(size.height),
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue
+        )
+        
+        guard let ctx = context, let cgImage = image.cgImage else { return nil }
+        
+        ctx.draw(cgImage, in: CGRect(origin: .zero, size: size))
+        
+        return buffer
     }
 }

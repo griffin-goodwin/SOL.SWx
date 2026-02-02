@@ -19,13 +19,15 @@ struct AuroraCompassOverlay: View {
     @State private var continuousRotation: Double = 0
     @State private var lastRawHeading: Double? = nil
     @State private var geocodedBestPoint: AuroraPoint? = nil
+    @State private var lastObserverCoordinate: CLLocationCoordinate2D? = nil
 
     var body: some View {
         Group {
             if let observer = loc.location {
                 if let bestResult = bestLook(for: observer) {
                     let best = bestResult.geometry
-                    let point = geocodedBestPoint ?? bestResult.point
+                    // Only use geocoded point if it matches the current best point
+                    let point = (geocodedBestPoint?.id == bestResult.point.id) ? (geocodedBestPoint ?? bestResult.point) : bestResult.point
 
                     VStack(spacing: 0) {
                         if !isExpanded {
@@ -35,10 +37,17 @@ struct AuroraCompassOverlay: View {
                         }
                     }
                     .onAppear {
+                        lastObserverCoordinate = observer.coordinate
                         updateGeocoding(for: bestResult.point)
                     }
-                    .onChange(of: bestResult.point.id) { _ in
+                    .onChange(of: bestResult.point.id) { _, _ in
                         updateGeocoding(for: bestResult.point)
+                    }
+                    .onChange(of: loc.location?.coordinate.latitude) { _, _ in
+                        handleLocationChange(observer: observer, bestPoint: bestResult.point)
+                    }
+                    .onChange(of: loc.location?.coordinate.longitude) { _, _ in
+                        handleLocationChange(observer: observer, bestPoint: bestResult.point)
                     }
                 } else {
                     noDataView
@@ -46,6 +55,21 @@ struct AuroraCompassOverlay: View {
             } else {
                 enableLocationView
             }
+        }
+    }
+    
+    private func handleLocationChange(observer: CLLocation, bestPoint: AuroraPoint) {
+        // Clear cached geocode if observer moved significantly (> ~1km)
+        if let lastCoord = lastObserverCoordinate {
+            let latDiff = abs(observer.coordinate.latitude - lastCoord.latitude)
+            let lonDiff = abs(observer.coordinate.longitude - lastCoord.longitude)
+            if latDiff > 0.01 || lonDiff > 0.01 {
+                geocodedBestPoint = nil
+                lastObserverCoordinate = observer.coordinate
+                updateGeocoding(for: bestPoint)
+            }
+        } else {
+            lastObserverCoordinate = observer.coordinate
         }
     }
 
@@ -450,21 +474,21 @@ struct AuroraCompassOverlay: View {
     }
 
     private func updateGeocoding(for point: AuroraPoint) {
+        // Skip if we already have this point geocoded
         if geocodedBestPoint?.id == point.id && geocodedBestPoint?.locationName != nil {
             return
         }
 
-        if let current = geocodedBestPoint {
-            let dist = abs(current.latitude - point.latitude) + abs(current.longitude - point.longitude)
-            if dist > 0.1 {
-                geocodedBestPoint = nil
-            }
+        // Clear stale geocode if point changed
+        if geocodedBestPoint?.id != point.id {
+            geocodedBestPoint = nil
         }
 
         Task {
             let updated = await auroraService.geocodePoints([point])
-            if let first = updated.first {
-                await MainActor.run {
+            await MainActor.run {
+                // Only update if this is still the relevant point
+                if let first = updated.first, first.id == point.id {
                     self.geocodedBestPoint = first
                 }
             }
