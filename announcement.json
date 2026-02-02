@@ -1,8 +1,8 @@
 {
   "active": true,
   "id": "2026-02-initial",
-  "title": "Welcome to Sol",
-  "message": "Thanks for using Sol! This announcement system lets us communicate important updates about space weather services directly in the app.",
+  "title": "Helioviewer Issues",
+  "message": "Helioviewer is currently experiencing issues with data availability and performance. Our team is actively working to resolve these problems. We apologize for any inconvenience caused and appreciate your patience.",
   "linkURL": null,
   "linkLabel": null,
   "type": "info",

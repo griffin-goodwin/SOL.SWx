@@ -9,7 +9,6 @@ public struct ContentView: View {
     @StateObject private var notificationManager = NotificationManager.shared
     @State private var hasLaunched = false
     @State private var activeAnnouncement: Announcement?
-    @State private var showAnnouncement = false
     @Environment(\.requestReview) private var requestReview
 
     private let hasPromptedForNotificationsKey = "hasPromptedForNotifications"
@@ -117,15 +116,20 @@ public struct ContentView: View {
                 }
             }
         }
-        .sheet(isPresented: $showAnnouncement) {
+        .overlay(alignment: .bottom) {
             if let announcement = activeAnnouncement {
                 AnnouncementView(announcement: announcement) {
-                    Task { await announcementService.dismiss(announcement.id) }
-                    showAnnouncement = false
+                    withAnimation(Theme.Animation.spring) {
+                        Task { await announcementService.dismiss(announcement.id) }
+                        activeAnnouncement = nil
+                    }
                 }
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.hidden)
-                .interactiveDismissDisabled()
+                .padding(.bottom, 90)
+                .transition(.asymmetric(
+                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                    removal: .opacity
+                ))
+                .animation(.spring(response: 0.4, dampingFraction: 0.75), value: activeAnnouncement?.id)
             }
         }
         .preferredColorScheme(.dark)
@@ -134,7 +138,6 @@ public struct ContentView: View {
     private func checkForAnnouncement() async {
         if let announcement = await announcementService.fetchAnnouncement() {
             activeAnnouncement = announcement
-            showAnnouncement = true
         }
     }
 }

@@ -48,9 +48,13 @@ actor AnnouncementService {
                 print("[Announcement] Skipped — not active")
                 return nil
             }
-            guard !isDismissed(announcement.id) else {
-                print("[Announcement] Skipped — already dismissed")
-                return nil
+            if !announcement.persistent {
+                guard !isDismissed(announcement.id) else {
+                    print("[Announcement] Skipped — already dismissed")
+                    return nil
+                }
+            } else {
+                print("[Announcement] Persistent announcement — skipping dismiss check")
             }
 
             print("[Announcement] Showing announcement: \(announcement.id)")
