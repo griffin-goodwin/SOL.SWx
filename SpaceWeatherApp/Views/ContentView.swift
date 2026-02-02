@@ -8,9 +8,12 @@ public struct ContentView: View {
     @State private var showNotificationPrompt = false
     @StateObject private var notificationManager = NotificationManager.shared
     @State private var hasLaunched = false
+    @State private var activeAnnouncement: Announcement?
+    @State private var showAnnouncement = false
     @Environment(\.requestReview) private var requestReview
-    
+
     private let hasPromptedForNotificationsKey = "hasPromptedForNotifications"
+    private let announcementService = AnnouncementService()
     
     public init() {
         // Custom tab bar appearance with enhanced styling
@@ -85,6 +88,8 @@ public struct ContentView: View {
 
             // Mark that initial launch tasks completed to avoid duplicate refresh
             hasLaunched = true
+
+            await checkForAnnouncement()
         }
         .alert("Enable Notifications?", isPresented: $showNotificationPrompt) {
             Button("Enable") {
@@ -106,11 +111,30 @@ public struct ContentView: View {
             if hasLaunched {
                 Task {
                     await viewModel.refresh()
+                    await checkForAnnouncement()
                     try? await Task.sleep(for: .seconds(2))
                     ReviewManager.requestReviewIfAppropriate(using: requestReview)
                 }
             }
         }
+        .sheet(isPresented: $showAnnouncement) {
+            if let announcement = activeAnnouncement {
+                AnnouncementView(announcement: announcement) {
+                    Task { await announcementService.dismiss(announcement.id) }
+                    showAnnouncement = false
+                }
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.hidden)
+                .interactiveDismissDisabled()
+            }
+        }
         .preferredColorScheme(.dark)
+    }
+
+    private func checkForAnnouncement() async {
+        if let announcement = await announcementService.fetchAnnouncement() {
+            activeAnnouncement = announcement
+            showAnnouncement = true
+        }
     }
 }
