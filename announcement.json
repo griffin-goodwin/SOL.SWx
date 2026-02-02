@@ -5,5 +5,6 @@
   "message": "Thanks for using Sol! This announcement system lets us communicate important updates about space weather services directly in the app.",
   "linkURL": null,
   "linkLabel": null,
-  "type": "info"
+  "type": "info",
+  "persistent": false
 }
