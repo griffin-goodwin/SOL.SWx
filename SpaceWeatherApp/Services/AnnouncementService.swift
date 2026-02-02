@@ -18,23 +18,45 @@ actor AnnouncementService {
 
     /// Fetches the current announcement, returning nil if inactive, already dismissed, or on failure.
     func fetchAnnouncement() async -> Announcement? {
-        guard let url = URL(string: Self.announcementURL) else { return nil }
+        print("[Announcement] Fetching from: \(Self.announcementURL)")
+        guard let url = URL(string: Self.announcementURL) else {
+            print("[Announcement] Invalid URL")
+            return nil
+        }
 
         do {
             let (data, response) = try await session.data(from: url)
 
-            guard let httpResponse = response as? HTTPURLResponse,
-                  httpResponse.statusCode == 200 else {
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("[Announcement] Response is not HTTP")
+                return nil
+            }
+            print("[Announcement] HTTP status: \(httpResponse.statusCode)")
+
+            guard httpResponse.statusCode == 200 else {
                 return nil
             }
 
+            if let raw = String(data: data, encoding: .utf8) {
+                print("[Announcement] Raw JSON: \(raw.prefix(500))")
+            }
+
             let announcement = try decoder.decode(Announcement.self, from: data)
+            print("[Announcement] Decoded — active: \(announcement.active), id: \(announcement.id)")
 
-            guard announcement.active else { return nil }
-            guard !isDismissed(announcement.id) else { return nil }
+            guard announcement.active else {
+                print("[Announcement] Skipped — not active")
+                return nil
+            }
+            guard !isDismissed(announcement.id) else {
+                print("[Announcement] Skipped — already dismissed")
+                return nil
+            }
 
+            print("[Announcement] Showing announcement: \(announcement.id)")
             return announcement
         } catch {
+            print("[Announcement] Error: \(error)")
             return nil
         }
     }
