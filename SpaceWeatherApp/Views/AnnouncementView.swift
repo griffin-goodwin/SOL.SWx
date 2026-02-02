@@ -149,23 +149,21 @@ struct AnnouncementView: View {
                 }
             }
 
-            // Dismiss button — only for non-persistent announcements
-            if !announcement.persistent {
-                Button(action: onDismiss) {
-                    Text("GOT IT")
-                        .font(Theme.mono(13, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, Theme.Spacing.md)
-                        .background(Color.white.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                                .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.plain)
+            // Dismiss button
+            Button(action: onDismiss) {
+                Text("GOT IT")
+                    .font(Theme.mono(13, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, Theme.Spacing.md)
+                    .background(Color.white.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
+                    )
             }
+            .buttonStyle(.plain)
         }
         .padding(Theme.Spacing.lg)
         .background(

@@ -120,7 +120,9 @@ public struct ContentView: View {
             if let announcement = activeAnnouncement {
                 AnnouncementView(announcement: announcement) {
                     withAnimation(Theme.Animation.spring) {
-                        Task { await announcementService.dismiss(announcement.id) }
+                        if !announcement.persistent {
+                            Task { await announcementService.dismiss(announcement.id) }
+                        }
                         activeAnnouncement = nil
                     }
                 }

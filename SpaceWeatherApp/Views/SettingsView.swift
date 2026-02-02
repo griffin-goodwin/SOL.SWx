@@ -172,7 +172,7 @@ struct SettingsView: View {
                         Text("Version")
                             .font(Theme.mono(14))
                         Spacer()
-                        Text("1.0.3")
+                        Text("1.0.4")
                             .font(Theme.mono(14))
                             .foregroundStyle(Theme.secondaryText)
                     }
