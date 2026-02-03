@@ -1,10 +1,10 @@
 {
   "active": true,
-  "id": "2026-02-helio-persistent",
-  "title": "Helioviewer Issues",
-  "message": "Helioviewer is currently experiencing issues with data availability and performance. We apologize for any inconvenience caused and appreciate your patience.",
+  "id": "2026-02-helio-restored",
+  "title": "Helioviewer Data Restored",
+  "message": "Helioviewer data has been restored. Thank you for your patience.",
   "linkURL": null,
   "linkLabel": null,
-  "type": "critical",
-  "persistent": true
+  "type": "info",
+  "persistent": false
 }
