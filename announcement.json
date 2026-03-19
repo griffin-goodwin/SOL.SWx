@@ -1,10 +1,10 @@
 {
   "active": true,
-  "id": "2026-02-helio-restored",
-  "title": "Helioviewer Data Restored",
-  "message": "Helioviewer data has been restored. Thank you for your patience.",
+  "id": "2026-03-helioview",
+  "title": "Helioviewer Data Down",
+  "message": "Helioviewer data is currently down. The website is undergoing maintenance. Imagery will be unavailable in the meantime. Thank you for your patience.",
   "linkURL": null,
   "linkLabel": null,
-  "type": "info",
-  "persistent": false
+  "type": "critical",
+  "persistent": true
 }
