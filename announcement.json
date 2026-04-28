@@ -2,7 +2,7 @@
   "active": true,
   "id": "2026-04-data-fix",
   "title": "Data Issue Resolved",
-  "message": "Aurora and Kp data loading has been restored after a NOAA/SWPC format change. Thanks for your patience.",
+  "message": "Aurora and Kp data loading has been restored after a NOAA/SWPC format change. Thanks for your patience. Please update your app to Version 1.0.5 when available.",
   "linkURL": null,
   "linkLabel": null,
   "type": "info",
