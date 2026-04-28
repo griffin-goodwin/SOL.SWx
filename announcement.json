@@ -1,10 +1,10 @@
 {
   "active": true,
-  "id": "2026-02-helio-persistent",
-  "title": "Helioviewer Issues",
-  "message": "Helioviewer is currently experiencing issues with data availability and performance. We apologize for any inconvenience caused and appreciate your patience.",
+  "id": "2026-04-data-fix",
+  "title": "Data Issue Resolved",
+  "message": "Aurora and Kp data loading has been restored after a NOAA/SWPC format change. Thanks for your patience.",
   "linkURL": null,
   "linkLabel": null,
-  "type": "critical",
-  "persistent": true
+  "type": "info",
+  "persistent": false
 }

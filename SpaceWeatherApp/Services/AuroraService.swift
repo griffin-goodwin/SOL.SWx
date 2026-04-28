@@ -23,6 +23,32 @@ actor AuroraService {
         self.session = URLSession(configuration: config)
         self.decoder = JSONDecoder()
     }
+
+    // MARK: - SWPC Product DTOs (tolerant to format shifts)
+
+    /// Newer SWPC "noaa-planetary-k-index.json" format: array of objects.
+    private struct KpIndexObjectRow: Decodable {
+        let timeTag: String
+        let kp: Double
+
+        enum CodingKeys: String, CodingKey {
+            case timeTag = "time_tag"
+            case kp = "Kp"
+        }
+    }
+
+    /// Newer SWPC "noaa-planetary-k-index-forecast.json" format: array of objects.
+    private struct KpForecastObjectRow: Decodable {
+        let timeTag: String
+        let kp: Double
+        let noaaScale: String?
+
+        enum CodingKeys: String, CodingKey {
+            case timeTag = "time_tag"
+            case kp
+            case noaaScale = "noaa_scale"
+        }
+    }
     
     // MARK: - Aurora Forecast (OVATION Model)
     
@@ -115,21 +141,20 @@ func fetchAuroraPoints(hemisphere: Hemisphere) async throws -> [AuroraPoint] {
             throw AuroraServiceError.invalidResponse
         }
         
-        // The API returns array of arrays, need custom parsing
-        let rawData = try decoder.decode([[String]].self, from: data)
-        
-        // Skip header row and parse data
-        let points = rawData.dropFirst().compactMap { row -> KpIndexPoint? in
-            guard row.count >= 2,
-                  let kp = Double(row[1]) else { return nil }
-            
-            return KpIndexPoint(
-                timeTag: row[0],
-                kpIndex: kp,
-                estimated: row.count > 2 ? row[2] : nil
-            )
+        // SWPC format changed (historically array-of-arrays, now often array-of-objects).
+        // Try new format first, then fall back to the legacy array-of-arrays format.
+        if let rows = try? decoder.decode([KpIndexObjectRow].self, from: data) {
+            return rows.map { KpIndexPoint(timeTag: $0.timeTag, kpIndex: $0.kp, estimated: nil) }
         }
-        
+
+        // Legacy format: array-of-arrays (with header row).
+        let rawData = try decoder.decode([[String]].self, from: data)
+        let points = rawData.dropFirst().compactMap { row -> KpIndexPoint? in
+            guard row.count >= 2 else { return nil }
+            let kpTrimmed = row[1].trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
+            guard let kp = Double(kpTrimmed) else { return nil }
+            return KpIndexPoint(timeTag: row[0], kpIndex: kp, estimated: row.count > 2 ? row[2] : nil)
+        }
         return points
     }
     
@@ -151,7 +176,13 @@ func fetchAuroraPoints(hemisphere: Hemisphere) async throws -> [AuroraPoint] {
             throw AuroraServiceError.invalidResponse
         }
 
-        // The forecast endpoint returns an array-of-arrays where some cells may be null.
+        // SWPC format changed (historically array-of-arrays, now often array-of-objects).
+        // Try new format first, then fall back to the legacy array-of-arrays format.
+        if let rows = try? decoder.decode([KpForecastObjectRow].self, from: data) {
+            return rows.map { KpIndexPoint(timeTag: $0.timeTag, kpIndex: $0.kp, estimated: $0.noaaScale) }
+        }
+
+        // Legacy format: array-of-arrays where some cells may be null.
         let rawData = try decoder.decode([[String?]].self, from: data)
         guard rawData.count > 1 else { return [] }
 
@@ -162,19 +193,12 @@ func fetchAuroraPoints(hemisphere: Hemisphere) async throws -> [AuroraPoint] {
         let scaleIdx = header.firstIndex(of: "noaa_scale") ?? 3
 
         let points = rawData.dropFirst().compactMap { row -> KpIndexPoint? in
-            // Read time tag if available
             let timeTag = (row.count > timeIdx ? row[timeIdx] : nil) ?? ""
-
-            // Read raw kp value, tolerate nil/empty and different formatting (commas, whitespace)
             let rawKp = (row.count > kpIdx ? row[kpIdx] : nil) ?? ""
             let kpTrimmed = rawKp.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ",", with: ".")
             let kpVal = Double(kpTrimmed) ?? 0.0
-
             let scale = (row.count > scaleIdx ? row[scaleIdx] : nil)
-
-            // Require a time tag; keep rows even when kp is empty (use 0.0)
             guard !timeTag.isEmpty else { return nil }
-
             return KpIndexPoint(timeTag: timeTag, kpIndex: kpVal, estimated: scale)
         }
 
